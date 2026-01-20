@@ -88,7 +88,7 @@ if [ -n "$ARG_TOKEN" ] && [ "$ARG_TOKEN" != "auto" ]; then
     AUTO_TOKEN=0
 else
     if [ -z "$ARG_TOKEN" ]; then
-        printf "请输入 AUTH_TOKEN [留空自动从本地 NodePass 获取]: "
+        printf "请输入 AUTH_TOKEN: "
         read INPUT_TOKEN
         if [ -z "$INPUT_TOKEN" ]; then
             AUTO_TOKEN=1
