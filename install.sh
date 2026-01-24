@@ -2,6 +2,7 @@
 
 # =========================================================
 # NodePass & Agent 安装脚本
+# (已修改：支持自定义端口，默认 18080)
 # =========================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -64,22 +65,43 @@ mkdir -p "$WORK_DIR"
 ARG_HUB_URL="$1"
 ARG_TOKEN="$2"
 ARG_NODE_TYPE="$3"
+ARG_PORT="$4"
 
 printf "========================================\n"
 printf "   NodePass & Agent 安装（AUTH_TOKEN 必填）\n"
 printf "========================================\n"
 
-# ---------- HUB_URL ----------
+# ---------- 1. 监听端口 (新增逻辑) ----------
+# 为了方便，如果设置了端口，默认 HUB_URL 会自动跟随该端口
+if [ -n "$ARG_PORT" ]; then
+    CFG_LISTEN_PORT="$ARG_PORT"
+else
+    DEFAULT_PORT="18080"
+    printf "请输入 NodePass 监听端口 [默认: %s]: " "$DEFAULT_PORT"
+    read INPUT
+    CFG_LISTEN_PORT="${INPUT:-$DEFAULT_PORT}"
+fi
+
+# 校验端口是否为数字
+case "$CFG_LISTEN_PORT" in
+    ''|*[!0-9]*) 
+        print_warn "端口无效，重置为 18080"
+        CFG_LISTEN_PORT=18080 
+        ;;
+esac
+
+# ---------- 2. HUB_URL ----------
 if [ -n "$ARG_HUB_URL" ]; then
     CFG_HUB_URL="$ARG_HUB_URL"
 else
-    DEFAULT_HUB="ws://127.0.0.1:8088/ws/agent"
+    # 默认 URL 根据上面设置的端口生成，方便本地回环连接
+    DEFAULT_HUB="ws://127.0.0.1:${CFG_LISTEN_PORT}/ws/agent"
     printf "请输入 HUB_URL [默认: %s]: " "$DEFAULT_HUB"
     read INPUT
     CFG_HUB_URL="${INPUT:-$DEFAULT_HUB}"
 fi
 
-# ---------- AUTH_TOKEN（强制） ----------
+# ---------- 3. AUTH_TOKEN（强制） ----------
 if [ -n "$ARG_TOKEN" ]; then
     CFG_TOKEN="$ARG_TOKEN"
 else
@@ -94,7 +116,7 @@ if [ -z "$CFG_TOKEN" ]; then
     exit 1
 fi
 
-# ---------- NODE_TYPE ----------
+# ---------- 4. NODE_TYPE ----------
 if [ -n "$ARG_NODE_TYPE" ]; then
     CFG_NODE_TYPE="$ARG_NODE_TYPE"
 else
@@ -109,20 +131,13 @@ fi
 
 print_info "\n>>> 1. 安装 NodePass Hub"
 
-TEMP_URL=${CFG_HUB_URL#*://}
-HOST_PORT=${TEMP_URL%%/*}
-NP_PORT=${HOST_PORT##*:}
-
-case "$NP_PORT" in
-    ''|*[!0-9]*) NP_PORT=8088 ;;
-esac
-
-printf "监听端口: \033[36m%s\033[0m\n" "$NP_PORT"
+printf "监听端口: \033[36m%s\033[0m\n" "$CFG_LISTEN_PORT"
 
 curl -L -f -o "$WORK_DIR/nodepass" "${GH_PROXY}${BASE_URL}/nodepass"
 [ -s "$WORK_DIR/nodepass" ] || { print_err "nodepass 下载失败"; exit 1; }
 chmod +x "$WORK_DIR/nodepass"
 
+# 使用用户指定的 CFG_LISTEN_PORT 启动
 cat > /etc/systemd/system/nodepass.service <<EOF
 [Unit]
 Description=NodePass Hub
@@ -131,7 +146,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$WORK_DIR
-ExecStart=$WORK_DIR/nodepass master://0.0.0.0:${NP_PORT}/api?tls=1
+ExecStart=$WORK_DIR/nodepass master://0.0.0.0:${CFG_LISTEN_PORT}/api?tls=1
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -208,6 +223,6 @@ printf "========================================\n"
 printf "Hub URL   : %s\n" "$CFG_HUB_URL"
 printf "AuthToken : %s\n" "$CFG_TOKEN"
 printf '%s\n' "----------------------------------------"
-printf "NodePass  : \033[32m运行中\033[0m (端口 %s)\n" "$NP_PORT"
+printf "NodePass  : \033[32m运行中\033[0m (端口 %s)\n" "$CFG_LISTEN_PORT"
 printf "Agent     : \033[32m运行中\033[0m\n"
 printf "========================================\n"
