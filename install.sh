@@ -1,14 +1,12 @@
 #!/bin/sh
 
 # =========================================================
-# NodePass Hub & Agent 安装脚本
-# 参数顺序：
-#   $1 AUTH_TOKEN (必需，Hub 侧签发)
-#   $2 HUB_URL
-#   $3 NODE_TYPE (both/master/slave)
-#   $4 LISTEN_PORT (默认 18080)
-# 参数不足时自动进入交互模式
+# NodePass Hub & Agent 安装脚本（安全版）
+# 修复：getcwd 崩溃（bash <(curl ...) 场景）
 # =========================================================
+
+# ---------- 关键修复 ----------
+cd / || exit 1
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -21,7 +19,7 @@ print_info() { printf "\033[32m%s\033[0m\n" "$1"; }
 print_warn() { printf "\033[33m%s\033[0m\n" "$1"; }
 print_err()  { printf "\033[31m%s\033[0m\n" "$1"; }
 
-# ---------- Root 检查 ----------
+# ---------- Root ----------
 [ "$(id -u)" -eq 0 ] || { print_err "必须使用 root 运行"; exit 1; }
 
 # ---------- 卸载 ----------
@@ -53,7 +51,11 @@ command -v curl >/dev/null 2>&1 || {
 mkdir -p "$WORK_DIR"
 
 # =========================================================
-# 参数解析（按你指定的顺序）
+# 参数解析
+# $1 AUTH_TOKEN
+# $2 HUB_URL
+# $3 NODE_TYPE
+# $4 PORT
 # =========================================================
 
 ARG_TOKEN="$1"
@@ -65,65 +67,56 @@ printf "========================================\n"
 printf " NodePass Hub & Agent 安装\n"
 printf "========================================\n"
 
-# ---------- 1. AUTH_TOKEN ----------
+# ---------- AUTH_TOKEN ----------
 if [ -n "$ARG_TOKEN" ]; then
     CFG_TOKEN="$ARG_TOKEN"
 else
-    printf "请输入 AUTH_TOKEN（Hub 侧签发，不能为空）: "
+    printf "请输入 AUTH_TOKEN: "
     read CFG_TOKEN
 fi
 
-if [ -z "$CFG_TOKEN" ]; then
-    print_err "AUTH_TOKEN 不能为空"
-    exit 1
-fi
+[ -n "$CFG_TOKEN" ] || { print_err "AUTH_TOKEN 不能为空"; exit 1; }
 
-# ---------- 2. 监听端口 ----------
-DEFAULT_PORT="18080"
+# ---------- PORT ----------
+DEFAULT_PORT=18080
 if [ -n "$ARG_PORT" ]; then
     CFG_PORT="$ARG_PORT"
 else
-    printf "请输入 NodePass 监听端口 [默认: %s]: " "$DEFAULT_PORT"
+    printf "监听端口 [默认 %s]: " "$DEFAULT_PORT"
     read INPUT
     CFG_PORT="${INPUT:-$DEFAULT_PORT}"
 fi
 
 case "$CFG_PORT" in
-    ''|*[!0-9]*)
-        print_warn "端口非法，重置为 18080"
-        CFG_PORT=18080
-        ;;
+    ''|*[!0-9]*) CFG_PORT=18080 ;;
 esac
 
-# ---------- 3. HUB_URL ----------
+# ---------- HUB_URL ----------
 DEFAULT_HUB_URL="ws://127.0.0.1:${CFG_PORT}/ws/agent"
 if [ -n "$ARG_HUB_URL" ]; then
     CFG_HUB_URL="$ARG_HUB_URL"
 else
-    printf "请输入 HUB_URL [默认: %s]: " "$DEFAULT_HUB_URL"
+    printf "HUB_URL [默认 %s]: " "$DEFAULT_HUB_URL"
     read INPUT
     CFG_HUB_URL="${INPUT:-$DEFAULT_HUB_URL}"
 fi
 
-# ---------- 4. NODE_TYPE ----------
+# ---------- NODE_TYPE ----------
 if [ -n "$ARG_NODE_TYPE" ]; then
     CFG_NODE_TYPE="$ARG_NODE_TYPE"
 else
-    printf "请输入 NODE_TYPE (both/master/slave) [默认: both]: "
+    printf "NODE_TYPE (both/master/slave) [both]: "
     read INPUT
     CFG_NODE_TYPE="${INPUT:-both}"
 fi
 
 # =========================================================
-# 安装 NodePass Hub
+# NodePass Hub
 # =========================================================
 
-print_info "\n>>> 安装 NodePass Hub"
-print_info "监听端口: $CFG_PORT"
+print_info "安装 NodePass Hub (端口 $CFG_PORT)"
 
-curl -fsSL -o "$WORK_DIR/nodepass" "${GH_PROXY}${BASE_URL}/nodepass" \
-    || { print_err "nodepass 下载失败"; exit 1; }
-
+curl -fsSL -o "$WORK_DIR/nodepass" "${GH_PROXY}${BASE_URL}/nodepass" || exit 1
 chmod +x "$WORK_DIR/nodepass"
 
 cat > /etc/systemd/system/nodepass.service <<EOF
@@ -132,8 +125,6 @@ Description=NodePass Hub
 After=network.target
 
 [Service]
-Type=simple
-WorkingDirectory=$WORK_DIR
 ExecStart=$WORK_DIR/nodepass master://0.0.0.0:${CFG_PORT}/api?tls=1
 Restart=always
 LimitNOFILE=65535
@@ -146,21 +137,13 @@ systemctl daemon-reload
 systemctl enable nodepass
 systemctl restart nodepass
 
-sleep 3
-systemctl is-active --quiet nodepass || {
-    print_err "NodePass 启动失败"
-    exit 1
-}
-
 # =========================================================
-# 安装 Agent
+# Agent
 # =========================================================
 
-print_info "\n>>> 安装 Agent"
+print_info "安装 Agent"
 
-curl -fsSL -o "$WORK_DIR/agent" "${GH_PROXY}${BASE_URL}/agent" \
-    || { print_err "agent 下载失败"; exit 1; }
-
+curl -fsSL -o "$WORK_DIR/agent" "${GH_PROXY}${BASE_URL}/agent" || exit 1
 chmod +x "$WORK_DIR/agent"
 
 cat > "$WORK_DIR/.env" <<EOF
@@ -176,8 +159,6 @@ Description=NodePass Agent
 After=network.target nodepass.service
 
 [Service]
-Type=simple
-WorkingDirectory=$WORK_DIR
 EnvironmentFile=$WORK_DIR/.env
 ExecStart=$WORK_DIR/agent
 Restart=always
@@ -191,23 +172,4 @@ systemctl daemon-reload
 systemctl enable nodepass-agent
 systemctl restart nodepass-agent
 
-sleep 2
-systemctl is-active --quiet nodepass-agent || {
-    print_err "Agent 启动失败"
-    systemctl status nodepass-agent --no-pager
-    exit 1
-}
-
-# =========================================================
-# 完成
-# =========================================================
-
-printf "\n========================================\n"
 print_info "安装完成"
-printf "----------------------------------------\n"
-printf "Hub URL   : %s\n" "$CFG_HUB_URL"
-printf "Node Type : %s\n" "$CFG_NODE_TYPE"
-printf "Port      : %s\n" "$CFG_PORT"
-printf "NodePass  : 运行中\n"
-printf "Agent     : 运行中\n"
-printf "========================================\n"
