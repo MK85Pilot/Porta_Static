@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # =========================================================
-# NodePass Hub & Agent 安装脚本（安全版）
+# NodePass Hub & Agent 安装脚本
 # 修复：getcwd 崩溃（bash <(curl ...) 场景）
 # =========================================================
 
@@ -245,6 +245,20 @@ BASE_URL=$HUB_BASE_URL
 # Telegram Webhook URL
 TELEGRAM_WEBHOOK_URL=$HUB_TELEGRAM_WEBHOOK
 EOF
+        
+        print_info "正在启动 Hub 进行初始化..."
+        print_warn "Hub 需要前台运行以生成鉴权文件"
+        print_warn "请按照提示完成初始化配置"
+        print_warn "初始化完成后，请按 Ctrl+C 停止 Hub，脚本将继续安装"
+        printf "\n"
+        
+        # 前台运行 Hub 进行初始化
+        # 用户完成配置后按 Ctrl+C 停止
+        cd "$WORK_DIR"
+        . ./hub.env
+        ./hub || true  # 忽略退出码，允许用户手动停止
+        
+        print_info "\nHub 初始化完成，正在配置为系统服务..."
         
         # 创建 Hub systemd 服务
         cat > /etc/systemd/system/conduit.service <<EOF
