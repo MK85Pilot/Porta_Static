@@ -1,12 +1,8 @@
 #!/bin/sh
 
 # =========================================================
-# NodePass Hub & Agent 安装脚本
-# 修复：getcwd 崩溃（bash <(curl ...) 场景）
+# NodePass Hub & Agent 安装脚本（安全版）
 # =========================================================
-
-# ---------- 关键修复 ----------
-cd / || exit 1
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -254,9 +250,9 @@ EOF
         
         # 前台运行 Hub 进行初始化
         # 用户完成配置后按 Ctrl+C 停止
-        cd "$WORK_DIR"
-        . ./hub.env
-        ./hub || true  # 忽略退出码，允许用户手动停止
+        # 使用绝对路径，避免 cd 命令导致的目录问题
+        . "$WORK_DIR/hub.env"
+        "$WORK_DIR/hub" || true  # 忽略退出码，允许用户手动停止
         
         print_info "\nHub 初始化完成，正在配置为系统服务..."
         
