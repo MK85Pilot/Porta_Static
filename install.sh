@@ -4,6 +4,9 @@
 # NodePass Hub & Agent 安装脚本（安全版）
 # =========================================================
 
+# 修复 getcwd 错误：切换到根目录并忽略可能的错误
+cd / 2>/dev/null || true
+
 export DEBIAN_FRONTEND=noninteractive
 
 WORK_DIR="/etc/nodepass"
